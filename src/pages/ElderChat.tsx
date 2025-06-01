@@ -399,7 +399,7 @@ const ElderChat = () => {
                         <CardContent className='flex flex-col flex-1 p-6 pt-0 min-h-0'>
                             <ScrollArea
                                 ref={scrollAreaRef}
-                                className='flex-1 pr-4 mb-4 h-full'
+                                className='flex-1 pr-4 mb-4 h-full max-h-[400px] overflow-y-auto'
                             >
                                 <div className='space-y-4'>
                                     {chatMessages.map((message) => (
