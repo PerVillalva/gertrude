@@ -10,7 +10,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Edit, MessageCircle } from "lucide-react";
+import { Plus, Edit, MessageCircle, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { elderApi, Elder } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -54,6 +54,7 @@ const Elders = () => {
   const handleCreateResident = async () => {
     if (!newResidentName.trim()) return;
 
+
     setIsCreating(true);
 
     try {
@@ -95,6 +96,28 @@ const Elders = () => {
 
   const handleChatWithResident = (residentId: number) => {
     navigate(`/elders/${residentId}/chat`);
+  };
+
+  const handleDeleteResident = async (residentId: number, residentName: string) => {
+    if (!window.confirm(`Are you sure you want to delete ${residentName}? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await elderApi.delete(residentId);
+      setResidents(residents.filter(resident => resident.id !== residentId));
+      toast({
+        title: "Success!",
+        description: `${residentName} has been deleted successfully.`,
+      });
+    } catch (error) {
+      console.error("Error deleting resident:", error);
+      toast({
+        title: "Error",
+        description: "Failed to delete resident. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -234,14 +257,25 @@ const Elders = () => {
                     <span className="text-xs text-[#7F4F61]/60">
                       Added {new Date(resident.created_at).toLocaleDateString()}
                     </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-[#C08777] border-[#C08777]/30 hover:bg-[#C08777]/10"
-                    >
-                      <Edit className="h-3 w-3 mr-1" />
-                      Edit
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-[#C08777] border-[#C08777]/30 hover:bg-[#C08777]/10"
+                      >
+                        <Edit className="h-3 w-3 mr-1" />
+                        Edit
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-red-500 border-red-500/30 hover:bg-red-500/10"
+                        onClick={() => handleDeleteResident(resident.id!, resident.name)}
+                      >
+                        <Trash2 className="h-3 w-3 mr-1" />
+                        Delete
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

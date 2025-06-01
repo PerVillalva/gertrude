@@ -123,6 +123,21 @@ export const elderApi = {
 
     return response.json();
   },
+
+  // Delete an elder
+  delete: async (id: number): Promise<void> => {
+    const csrfToken = getCSRFToken();
+    const response = await fetch(`${API_BASE_URL}/elders/${id}/`, {
+      method: "DELETE",
+      headers: {
+        ...(csrfToken && { "X-CSRFToken": csrfToken }),
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to delete elder: ${response.statusText}`);
+    }
+  },
 };
 
 // Event API functions
