@@ -1,9 +1,23 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+    Send,
+    ArrowLeft,
+    User,
+    Share2,
+    Heart,
+    FileText,
+    Volume2,
+    Twitter,
+    Facebook,
+    Mail,
+} from 'lucide-react';
+import { elderApi, chatApi, Elder, ChatMessage } from '@/lib/api';
+import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import {
@@ -20,112 +34,170 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
-import {
-    Send,
-    ArrowLeft,
-    User,
-    Share2,
-    Heart,
-    FileText,
-    Volume2,
-    ExternalLink,
-    DollarSign,
-    Twitter,
-    Facebook,
-    Mail,
-} from 'lucide-react';
-
-interface Elder {
-    id: number;
-    name: string;
-    summary?: {
-        short_summary: string;
-        long_summary: string;
-    };
-    profile_picture_url?: string;
-    audio_url?: string;
-    document_url?: string;
-    interests?: string[];
-}
-
-interface ChatMessage {
-    id: number;
-    sender: 'user' | 'llm';
-    message: string;
-    timestamp: string;
-}
-
-const defaultInterests = [
-    'Classical Music',
-    'Mystery Novels',
-    'Reading',
-    'Socializing',
-];
 
 const ElderChat = () => {
     const { elderId } = useParams();
     const navigate = useNavigate();
+    const { toast } = useToast();
+    const scrollAreaRef = useRef<HTMLDivElement>(null);
+
     const [elder, setElder] = useState<Elder | null>(null);
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [isInitialLoading, setIsInitialLoading] = useState(true);
     const [isDonateOpen, setIsDonateOpen] = useState(false);
+    const [audioUrl] = useState<string | null>(null); // Placeholder for audio
 
+    // Auto-scroll to bottom when messages change
     useEffect(() => {
-        // Mock data - in real app, fetch from API
-        const mockElder: Elder = {
-            id: parseInt(elderId || '1'),
-            name: 'Margaret Thompson',
-            summary: {
-                short_summary:
-                    'Margaret enjoys quiet activities like reading and listening to classical music. She has mobility limitations but is very social.',
-                long_summary:
-                    'Margaret Thompson is a retired librarian who spent 40 years working at the local public library. She has a deep love for mystery novels, particularly Agatha Christie, and enjoys classical music, especially Beethoven and Mozart. She has some mobility issues but remains mentally sharp and enjoys social interaction. She often shares stories about her library work and the many people she helped over the years.',
-            },
-            profile_picture_url: undefined, // or a real URL
-            audio_url: undefined, // or a real URL
-            document_url: undefined, // or a real URL
-            interests: defaultInterests,
+        if (scrollAreaRef.current) {
+            const scrollContainer = scrollAreaRef.current.querySelector(
+                '[data-radix-scroll-area-viewport]'
+            );
+            if (scrollContainer) {
+                scrollContainer.scrollTop = scrollContainer.scrollHeight;
+            }
+        }
+    }, [chatMessages]);
+
+    // Fetch elder data and chat messages
+    useEffect(() => {
+        const fetchData = async () => {
+            if (!elderId) return;
+
+            try {
+                setIsInitialLoading(true);
+
+                // Fetch elder details
+                const elderData = await elderApi.get(parseInt(elderId));
+                setElder(elderData);
+
+                // Fetch existing chat messages
+                const messages = await chatApi.getElderMessages(
+                    parseInt(elderId)
+                );
+                setChatMessages(messages);
+
+                // If no messages exist, send an initial greeting
+                if (messages.length === 0) {
+                    const initialMessage = `Hello! I'm here to help you plan activities for ${elderData.name}. I have detailed information about their preferences and background. What would you like to know or plan for them?`;
+
+                    await chatApi.sendElderMessage(
+                        parseInt(elderId),
+                        initialMessage,
+                        'llm'
+                    );
+
+                    // Refresh messages to include the initial greeting
+                    const updatedMessages = await chatApi.getElderMessages(
+                        parseInt(elderId)
+                    );
+                    setChatMessages(updatedMessages);
+                }
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                toast({
+                    title: 'Error',
+                    description:
+                        'Failed to load elder information. Please try again.',
+                    variant: 'destructive',
+                });
+            } finally {
+                setIsInitialLoading(false);
+            }
         };
-        setElder(mockElder);
-        setChatMessages([
-            {
-                id: 1,
-                sender: 'llm',
-                message: `Hello! I'm here to help you plan activities for ${mockElder.name}. I have detailed information about her preferences and background. What would you like to know or plan for her?`,
-                timestamp: new Date().toISOString(),
-            },
-        ]);
-    }, [elderId]);
+
+        fetchData();
+    }, [elderId, toast]);
+
+    // Poll for new messages (to catch AI responses)
+    useEffect(() => {
+        if (!elderId || isInitialLoading) return;
+
+        const pollMessages = async () => {
+            try {
+                const messages = await chatApi.getElderMessages(
+                    parseInt(elderId)
+                );
+                setChatMessages(messages);
+            } catch (error) {
+                console.error('Error polling messages:', error);
+            }
+        };
+
+        // Poll every 2 seconds for new messages
+        const interval = setInterval(pollMessages, 2000);
+
+        return () => clearInterval(interval);
+    }, [elderId, isInitialLoading]);
 
     const sendMessage = async () => {
-        if (!newMessage.trim()) return;
-        const userMessage: ChatMessage = {
-            id: Date.now(),
-            sender: 'user',
-            message: newMessage,
-            timestamp: new Date().toISOString(),
-        };
-        setChatMessages((prev) => [...prev, userMessage]);
-        setNewMessage('');
-        setIsLoading(true);
-        setTimeout(() => {
-            const aiMessage: ChatMessage = {
-                id: Date.now() + 1,
-                sender: 'llm',
-                message: `AI response for: ${newMessage}`,
-                timestamp: new Date().toISOString(),
-            };
-            setChatMessages((prev) => [...prev, aiMessage]);
+        if (!newMessage.trim() || !elderId) return;
+
+        try {
+            setIsLoading(true);
+
+            // Send user message
+            await chatApi.sendElderMessage(
+                parseInt(elderId),
+                newMessage,
+                'user'
+            );
+
+            // Clear input
+            setNewMessage('');
+
+            // Refresh messages immediately to show user message
+            const updatedMessages = await chatApi.getElderMessages(
+                parseInt(elderId)
+            );
+            setChatMessages(updatedMessages);
+
+            // Note: AI response will be handled by the polling mechanism
+        } catch (error) {
+            console.error('Error sending message:', error);
+            toast({
+                title: 'Error',
+                description: 'Failed to send message. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
             setIsLoading(false);
-        }, 1500);
+        }
     };
 
     const handleCopyLink = () => {
         navigator.clipboard.writeText(window.location.href);
     };
 
-    if (!elder) return <div>Loading...</div>;
+    if (isInitialLoading) {
+        return (
+            <div
+                className='min-h-screen p-6 flex items-center justify-center'
+                style={{
+                    background:
+                        'linear-gradient(to bottom right, #AFD0CD, #EFD492)',
+                }}
+            >
+                <div className='text-[#7F4F61] text-lg'>Loading...</div>
+            </div>
+        );
+    }
+
+    if (!elder) {
+        return (
+            <div
+                className='min-h-screen p-6 flex items-center justify-center'
+                style={{
+                    background:
+                        'linear-gradient(to bottom right, #AFD0CD, #EFD492)',
+                }}
+            >
+                <div className='text-[#7F4F61] text-lg'>Elder not found</div>
+            </div>
+        );
+    }
 
     return (
         <div
@@ -230,37 +302,10 @@ const ElderChat = () => {
                     </div>
                     {/* Profile Picture */}
                     <Avatar className='h-32 w-32 mb-4 border-4 border-[#AFD0CD]'>
-                        {elder.profile_picture_url ? (
-                            <AvatarImage
-                                src={elder.profile_picture_url}
-                                alt={elder.name}
-                            />
-                        ) : (
-                            <AvatarFallback className='text-4xl bg-[#EFD492] text-[#7F4F61]'>
-                                {elder.name[0]}
-                            </AvatarFallback>
-                        )}
+                        <AvatarFallback className='text-4xl bg-[#EFD492] text-[#7F4F61]'>
+                            {elder.name[0]}
+                        </AvatarFallback>
                     </Avatar>
-                    {/* Interests */}
-                    <div className='w-full mb-2'>
-                        <h3 className='text-[#7F4F61] font-semibold mb-2 text-center'>
-                            Main Interests
-                        </h3>
-                        <div className='flex flex-wrap gap-2 justify-center'>
-                            {(elder.interests || []).map((interest, idx) => (
-                                <Badge
-                                    key={idx}
-                                    variant='secondary'
-                                    className='cursor-pointer hover:bg-[#AFD0CD]/60'
-                                    onClick={() =>
-                                        alert(`Show more about ${interest}`)
-                                    }
-                                >
-                                    {interest}
-                                </Badge>
-                            ))}
-                        </div>
-                    </div>
                     {/* Elder Summary */}
                     {elder.summary && (
                         <div className='w-full mb-4'>
@@ -270,9 +315,6 @@ const ElderChat = () => {
                             <p className='text-sm text-[#7F4F61] mb-2'>
                                 {elder.summary.short_summary}
                             </p>
-                            <p className='text-xs text-[#7F4F61]/80'>
-                                {elder.summary.long_summary}
-                            </p>
                         </div>
                     )}
                     {/* Audio/Document Buttons (always visible, disabled if not active) */}
@@ -281,17 +323,15 @@ const ElderChat = () => {
                             asChild
                             variant='outline'
                             className='w-full text-[#7F4F61] border-[#C08777]'
-                            disabled={!elder.audio_url}
+                            disabled={!audioUrl}
                         >
                             <a
-                                href={elder.audio_url || '#'}
+                                href={audioUrl || '#'}
                                 tabIndex={-1}
-                                aria-disabled={!elder.audio_url}
+                                aria-disabled={!audioUrl}
                                 style={{
-                                    pointerEvents: elder.audio_url
-                                        ? 'auto'
-                                        : 'none',
-                                    opacity: elder.audio_url ? 1 : 0.5,
+                                    pointerEvents: audioUrl ? 'auto' : 'none',
+                                    opacity: audioUrl ? 1 : 0.5,
                                 }}
                             >
                                 <Volume2 className='inline mr-2' />
@@ -302,17 +342,15 @@ const ElderChat = () => {
                             asChild
                             variant='outline'
                             className='w-full text-[#7F4F61] border-[#C08777]'
-                            disabled={!elder.document_url}
+                            disabled={true}
                         >
                             <a
-                                href={elder.document_url || '#'}
+                                href={'#'}
                                 tabIndex={-1}
-                                aria-disabled={!elder.document_url}
+                                aria-disabled={true}
                                 style={{
-                                    pointerEvents: elder.document_url
-                                        ? 'auto'
-                                        : 'none',
-                                    opacity: elder.document_url ? 1 : 0.5,
+                                    pointerEvents: 'none',
+                                    opacity: 0.5,
                                 }}
                             >
                                 <FileText className='inline mr-2' />
@@ -351,14 +389,18 @@ const ElderChat = () => {
                     </div>
 
                     {/* Chat Section */}
-                    <Card className='bg-white shadow-lg hover:shadow-xl transition-shadow duration-300 border-l-4 border-l-[#7F4F61] flex flex-col flex-1'>
+                    <Card className='bg-white shadow-lg hover:shadow-xl transition-shadow duration-300 border-l-4 border-l-[#7F4F61] flex flex-col flex-1 h-[600px]'>
                         <CardHeader>
                             <CardTitle className='text-[#7F4F61]'>
-                                Chat about {elder.name}
+                                Ask me what you'd like to know about{' '}
+                                {elder.name}
                             </CardTitle>
                         </CardHeader>
-                        <CardContent className='flex flex-col flex-1 p-6 pt-0'>
-                            <ScrollArea className='flex-1 pr-4 mb-4'>
+                        <CardContent className='flex flex-col flex-1 p-6 pt-0 min-h-0'>
+                            <ScrollArea
+                                ref={scrollAreaRef}
+                                className='flex-1 pr-4 mb-4 h-full'
+                            >
                                 <div className='space-y-4'>
                                     {chatMessages.map((message) => (
                                         <div
@@ -379,6 +421,11 @@ const ElderChat = () => {
                                                 <p className='text-sm leading-relaxed whitespace-pre-line'>
                                                     {message.message}
                                                 </p>
+                                                <p className='text-xs opacity-70 mt-1'>
+                                                    {new Date(
+                                                        message.timestamp
+                                                    ).toLocaleTimeString()}
+                                                </p>
                                             </div>
                                         </div>
                                     ))}
@@ -394,7 +441,8 @@ const ElderChat = () => {
                                     )}
                                 </div>
                             </ScrollArea>
-                            <div className='flex space-x-2 mt-auto pt-4 border-t border-[#AFD0CD]/30'>
+
+                            <div className='flex space-x-2 pt-4 border-t border-[#AFD0CD]/30 flex-shrink-0'>
                                 <Input
                                     value={newMessage}
                                     onChange={(e) =>
@@ -405,10 +453,11 @@ const ElderChat = () => {
                                         e.key === 'Enter' && sendMessage()
                                     }
                                     className='border-[#C08777]/30 focus:border-[#C08777]'
+                                    disabled={isLoading}
                                 />
                                 <Button
                                     onClick={sendMessage}
-                                    disabled={isLoading}
+                                    disabled={isLoading || !newMessage.trim()}
                                     className='bg-[#C08777] hover:bg-[#C08777]/90 text-white'
                                 >
                                     <Send className='h-4 w-4' />
